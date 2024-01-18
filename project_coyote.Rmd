@@ -1,0 +1,752 @@
+---
+title: "589 Project Report"
+author: "Henny Luo, Renghe Tang, Weijia Lyu"
+date: "2023-04-30"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(sp)
+library(spatstat)
+library(maptools)
+library(viridis)
+
+coyote <- read.csv("coyote.csv", sep = "\t", header = TRUE)
+load("BC_Covariates.Rda")
+```
+# Introduction
+
+The current project attempts to explore the spatial distribution of coyotes in British Columbia (BC), Canada, and its potential interaction with environmental covariates. The scope of the study covers the entire province of BC, which is known to have a significant population of coyotes. The project explores the relationship between coyote populations and four environmental covariates within the province: elevation, forest cover, distance to water, and human footprint index (HFI). Characteristics of the spatial distribution of coyote occurrences and their potential relationships with these local environmental covariates are explored with various spatial data analysis techniques. 
+The coyote can be identified by its rough, grey, or reddish-grey fur with a lighter buff-colored underbelly, along with long rusty or yellowish legs and a thick, bushy tail. They have notable yellow eyes and prominent ears and weigh between 20 to 40 pounds on average. Historically, coyotes were restricted to living in prairies and arid regions of the western part of the United States, but with the arrival of settlers who changed the landscape and eradicated wolves, coyotes found new opportunities to expand their range. They are now widespread throughout the Western Hemisphere, from the Pacific to the Atlantic oceans (Lariviere, 2023).
+According to Furbeaer Management Guidelines published by BC Government, the earliest occurrences of coyotes in BC were reported in the 1930s. In the recent decade, they rapidly expanded within the province, including in urban areas. Coyotes are generally not found around coastal slopes and islands in the province.
+The current project attempts to further explore the distribution of coyotes within BC and their potential relationships with the environmental covariates of interest to provide insight into the management and conservation of coyotes in BC. Various spatial data analysis techniques implemented by spatial data analysis packages in R are employed to investigate the relationships between the coyote occurrence locations and how environmental covariates influence the spatial distribution of coyotes. 
+
+
+# Method
+
+## Data
+The occurrences data of coyotes is obtained from the Global Biodiversity Information Facility. GBIF is an online data infrastructure founded with international governmental efforts to provide free data on different species on Earth to facilitate research and the conservation of biodiversity. A dataset containing 63,537 occurrences of coyote (Canis latrans Say, 1823) across North America is obtained from the Global Biodiversity Information Facility (GBIF.org, 2023). The coordinates are extracted for analysis of the spatial distribution of coyotes.
+The “BC Covariate” dataset provided for the current project contains four environmental covariates, including elevation, forest cover, Human Footprint Index, and distance to water in British Columbia, Canada.  
+
+## Data processing
+The coordinates of the coyote occurrences are transformed to Albers projection to match the projection method employed by the sampling window bounding the borders of BC using the R package `sp.` The resulting coordinates data is then combined with the BC covariate dataset and converted to a `ppp` (Planer Point Pattern) object using the `spatstat` package. Coyote occurrences within BC are filtered with the help of the sampling window. The final dataset for analysis contains 960 coyote occurrences.
+
+## Analysis
+
+### Visualization
+The spatial distribution of coyotes in BC is visualized for preliminary visual assessment by plotting the locations of each occurrence within the sampling window outlining the border of BC. The distance between each point and its nearest neighbor is calculated and plotted with the distances reflected as the size of each point to identify the most isolated occurrences.
+
+### Test for homogeneity
+The quadrat test is conducted to examine the homogeneity of the distribution of coyote occurrences. The sampling window is partitioned into 8 quadrats, and the observed number of occurrences in each quadrat is compared with the expected number of occurrences in each quadrat, assuming homogeneity. The result suggests inhomogeneity.
+
+### Intensity Analysis
+The intensity of coyote occurrences across BC is estimated by kernel density estimation. Two kernel density estimations are performed using different bandwidth selection methods. The first intensity estimation employs the default Diggle’s method. The second one uses the likelihood cross-validation method. The results are plotted for visual assessment. Scan LRT test is performed to identify areas of elevated intensity (hot spots). A radius of 60000 is specified for the test to aid visualization of the likelihood ratio as the estimated radius with likelihood CV  bandwidth selection resulted in hot spots too small for the scale of the provided sampling window. The local p-values of the Scan test using estimated radius are visualized as it is easier to read when the radius is small.
+Relationship between occurrence locations
+Ripley’s K-function is calculated to access the spatial relationship between the occurrences. The calculation is corrected for inhomogeneity.
+
+### Analysis with Covariates
+
+Quadrat count tests are conducted for each of the four covariates to see if occurrences are evenly distributed across different levels of the covariates. The four quantiles of each covariate are calculated, and the sampling window is divided and mapped to four levels, low, medium, high, and very high,  based on the value of the covariate. The number of occurrences in each level of the covariate is then counted and compared to the expected number of occurrences if the distribution was even.
+The intensity of the coyote occurrences as a function of each of the covariates is estimated non-parametrically. The estimated intensity, given the values of the covariate, is assessed for patterns that deviate from the constant one, which would suggest that there is a relationship between the covariate and the intensity of the coyote occurrences.
+Potential collinearity between the covariates is examined by computing their correlation matrix.
+
+### Poisson Point Model
+
+The Poisson Point Process model is used to model the relationship between the intensity of the coyote occurrences and the covariates. Since the point process is inhomogeneous, a function form of $\lambda(u) = e^{\alpha + \beta_1Z_1(u) + \beta_2Z_2(U) +...+ \beta_iZ_i(u)}$is assumed. All four covariates, elevation, forest cover, HFI, and distance to water, are used to fit the model. Quadratic terms are added to model the non-linear relationships between the intensity and the covariates.
+A simplified model is fitted, removing the quadratic term for distance to water. AIC for the full and the reduced models are both calculated and compared. A Likelihood Ratio Test is performed to determine if the simplification is justified. The reduced model is validated by a quadrat count test. The intensity predicted by the model is visualized and mapped with the observed data to visually assess model fit. The residuals are also plotted for validation. Partial residuals of each of the covariates are plotted to examine if the model captures the relationship between the individual covariate and the intensity.
+A model with higher-order polynomials is fitted with the data in an attempt to better capture the complexity of the relationships between intensity and covariates. The new model includes up to the 7th power of elevation and 6th power of forest cover. The new model is evaluated by visualizing the residuals and partial residuals for each covariate.
+
+
+
+
+# Results
+```{r}
+
+df <- coyote[complete.cases(coyote[, c('decimalLatitude', 'decimalLongitude')]),]
+coords <- df[, c("decimalLongitude", "decimalLatitude")]
+points_wgs84 <- SpatialPoints(coords)
+
+
+crs_wgs84 <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(points_wgs84) <- crs_wgs84
+
+
+bc_albers_proj4 <- "+proj=aea +lat_0=45 +lon_0=-126 +lat_1=50 +lat_2=58.5 +x_0=1000000 +y_0=0 +datum=NAD83 +units=m +no_defs"
+
+
+points_bc_albers <- spTransform(points_wgs84, CRS(bc_albers_proj4))
+
+reprojected_coords <- as.data.frame(coordinates(points_bc_albers))
+coyote_alb <- df
+coyote_alb[,c('decimalLongitude','decimalLatitude')] <- reprojected_coords
+
+```
+
+
+## visualized the distribution of coyote across BC 
+
+### preliminary visual assessment of spatial distribution
+
+```{r warning=FALSE, fig.cap='Distribution of Coyote in BC', message=FALSE}
+DATA$df <- coyote_alb
+
+# convert to list
+data_win <- as.owin(DATA$Window)
+
+#convert list to a ppp objact
+data_ppp  <- ppp(x = DATA$df$decimalLongitude, 
+                 y = DATA$df$decimalLatitude, 
+                 window = data_win)
+# Clip the ppp object to the window
+data_ppp_clipped <- data_ppp[data_win]
+data_ppp_clipped <- unmark(data_ppp_clipped)
+# Plot the points inside the window
+plot(data_ppp_clipped, main = "Coyote in BC")
+```
+
+From figure 1, we know that coyotes are mainly concentrated in the central and southern parts of British Columbia, with the highest concentration being along the lower boundary of BC, while only a few scattered populations are found in the upper part. Therefore, we tentatively conclude that the distribution of coyotes in BC is inhomogeneous.
+
+```{r, fig.width=6, fig.height=6, fig.cap='Elevation Classes and Coyote Overlay Plot in BC'}
+# create the evelation class plot
+plot(cut(DATA$Elevation,
+         5,
+         labels = c("very low", "low", "medium","high", "very high")),
+     main = "Elevation classes",
+     visible = TRUE)
+# overlay the parks
+plot(data_ppp_clipped, pch = 16, cex = 0.5, add = TRUE)
+
+classes <- cut(DATA$Elevation,
+               5,
+               labels = c("very low", "low", "medium","high", "very high"))
+
+
+# determine which elevation class contains the most parks
+table(classes[data_ppp_clipped])
+
+
+```
+
+We divided the elevation into 5 levels, from 'very low' to 'very high'. From figure 2, we can see that coyotes are mainly distributed in areas with 'very low' and 'low' elevations, with a small number of them found in areas with 'medium' elevations, while there are almost no coyotes distributed in areas with 'high' and above elevations. This suggests that elevation may be related to the distribution of coyotes.
+
+```{r, fig.width=6, fig.height=6, fig.cap='Forest Cover Classes and Coyote Overlay Plot in BC'}
+
+plot(cut(DATA$Forest,
+         5,
+         labels = c("very low", "low", "medium","high", "very high")),
+     main = "Forest classes",
+     visible = TRUE)
+
+plot(data_ppp_clipped, pch = 16, cex = 0.7, add = TRUE)
+
+classes <- cut(DATA$Forest,
+               5,
+               labels = c("very low", "low", "medium","high", "very high"))
+
+
+plot.forest <- recordPlot()
+
+table(classes[data_ppp_clipped])
+
+
+```
+We then plotted the forest cover and coyote distribution in Figure 3. From Figure 3, we observed that coyotes are mainly distributed in areas with 'very high' forest cover, while there are almost no coyotes in areas with 'high' and above forest cover. This suggests that there may be a certain relationship between the distribution of coyotes and forest cover.
+
+```{r, fig.width=8, fig.height=8, fig.cap='Distance of Water Classes and Coyote Overlay Plot in BC'}
+plot(cut(DATA$Dist_Water,
+         5,
+         labels = c("very close", "close", "medium","far", "very far")),
+     main = "Distance to Water classes",
+     visible = TRUE)
+
+plot(data_ppp_clipped, pch = 16, cex = 0.5, add = TRUE)
+
+classes <- cut(DATA$Dist_Water,
+               5,
+               labels = c("very close", "close", "medium","far", "very far"))
+
+
+plot.forest <- recordPlot()
+
+table(classes[data_ppp_clipped])
+
+
+```
+
+We then plotted the distance to water sources and coyote distribution in Figure 4. As shown in the figure, coyotes are mainly distributed in areas close to water sources, with very few found in areas far from water sources. Therefore, we speculate that the distance to water sources may be related to the distribution of coyotes.
+
+```{r, fig.width=8, fig.height=8, fig.cap='HFI Classes and Coyote Overlay Plot in BC'}
+
+plot(cut(DATA$HFI,
+         5,
+         labels = c("very low", "low", "medium","high", "very high")),
+     main = "HFI classes",
+     visible = TRUE)
+
+plot(data_ppp_clipped, pch = 16, cex = 0.5, add = TRUE)
+
+
+classes <- cut(DATA$Dist_Water,
+               5,
+               labels = c("very low", "low", "medium","high", "very high"))
+
+
+plot.forest <- recordPlot()
+
+table(classes[data_ppp_clipped])
+
+```
+
+We then plotted the Human Footprint Index (HFI) and coyote distribution in Figure X. From the figure 5, we can see that coyotes are mainly distributed in areas with higher HFI values, which indicates greater human impact on those areas. This suggests that there may be a certain relationship between HFI and coyote distribution.
+
+```{r, fig.width=8, fig.height=8, fig.cap='Nearest Coyotes Overlay Plot in BC'}
+
+# compute the nearest neighbour distance
+
+
+dist_df <- as.data.frame(nndist(data_ppp_clipped))
+
+# mark the parks with the calculated distance
+marks(data_ppp_clipped) <- dist_df
+
+# plot the parks with the nearest neighbour distance
+plot(data_ppp_clipped, which.marks = "Dist")
+
+
+#DATA$df[which.max(dist_df$`nndist(data_ppp_clipped)`),]
+
+```
+
+We then plotted the nearest neighbor distances between each coyote and its closest neighbor. We found that coyotes in the lower part of British Columbia are relatively close to each other, while those in the upper part are further apart.The results are shown in figure 6. 
+
+
+
+We have tentatively concluded that all four variables may be related to the distribution of coyotes, but relying solely on visual inspection is not enough. 
+
+## Intensity Analysis
+
+Next, we used the quadratcount function to divide the study area into eight small rectangles, and plotted the intensity distribution map, followed by quadrat.test analysis.
+
+```{r, fig.cap='Intensity of Coyote'}
+
+library(viridis)
+#Split into quadrat and count the points
+qd <- quadratcount(data_ppp_clipped,
+                  nx = 2,
+                  ny = 4)
+
+
+
+#Plot the output 
+# plot(data_ppp_clipped,
+#      pch = 16,
+#      cex = 0.5,
+#      main = "Beilschmiedia pendula locations")
+# 
+# plot(qd, cex = 2, col = "red", add = T)
+
+#Plot the output
+plot(intensity(qd, image = T),
+     main = "Coyote Intensity")
+
+```
+
+
+
+The intensity map is shown in Figure 7, and it is clear that the distribution of coyotes is inhomogeneous. We then used a $\chi^2$ test to test for significant deviation from CSR.
+
+```{r}
+
+
+quadrat.test(qd)
+```
+
+The results of the test from the quadrat.test function showed a p-value much smaller than 0.05, indicating that the distribution of coyotes in BC is inhomogeneous.
+
+```{r, fig.cap='Kernel Density Estimate'}
+# Density estimation of lambda (u)
+lambda_hat <- density (data_ppp_clipped)
+# Plot the output
+plot (lambda_hat)
+plot (data_ppp_clipped, pch = 16 , cex = 0.8 ,
+      use.marks = F, 
+      add = T)
+
+
+
+```
+
+Then we perfrom density estimation of the intensity (lambda) with default bandwidth selection. From Figure 8, it can be observed that coyotes are mainly distributed in the lower half of BC.
+
+```{r, fig.cap='Kernel Density Estimate with Likelihood CV Bandwidth Selection'}
+# Likelihood Cross Validation Bandwidth Selection
+
+plot(density(data_ppp_clipped, sigma = bw.ppl),
+     ribbon = F,
+     main = "
+     Likelihood CV Bandwidth Selection")
+
+```
+
+
+
+We then used likelihood cross-validation bandwidth selection. As shown in Figure 9, coyotes are more concentrated in the Vancouver and Kelowna areas.
+
+```{r}
+# Estimate the radius
+#r <- bw.ppl(data_ppp_clipped)
+r<- 60000
+#Calculate scan test statistic
+LR <- scanLRTS(data_ppp_clipped, r = r)
+
+```
+
+```{r, fig.cap="LR"}
+
+
+#Plot the output 
+plot(LR)
+plot(data_win, add = TRUE, border = "red")
+
+```
+
+
+
+We conducted the ScanLRT test for hot spot analysis, as shown in Figure 10, and the results were almost the same as the likelihood cross-validation bandwidth selection. Areas around Vancuover and Kelowna are two hot spots. 
+
+## Covariates
+Next, we visualized the density estimates of coyote sightings on the four variables to analyze the distribution density of coyotes in different variable intervals.
+
+### Elevation
+```{r}
+
+elev <- DATA$Elevation
+
+b <- quantile(elev, probs = (0:4)/4, type = 2)
+
+Zcut <- cut(elev, breaks = b)
+V <- tess(image = Zcut)
+
+quadratcount(data_ppp_clipped, tess = V)
+```
+
+```{r, fig.width=8, fig.height=8, fig.cap='Density Estimates of Coyote on Elevation'}
+
+#Estimate Rho
+rho <- rhohat(data_ppp_clipped, elev)
+
+plot(rho, xlim = c(0, max(elev)))
+
+```
+
+Figure 11 displays the density estimates of coyote sightings based on elevation. We can observe from the graph that there may be a relationship between elevation and coyote distribution. Moreover, these relationships are non-linear, with higher coyote intensity observed at lower elevations (approximately 0-600).
+
+
+
+## Forest
+
+```{r}
+
+forest <- DATA$Forest
+
+b <- quantile(forest, probs = (0:4)/4, type = 2)
+
+Zcut <- cut(forest, breaks = b)
+V <- tess(image = Zcut)
+
+quadratcount(data_ppp_clipped, tess = V)
+```
+
+```{r, fig.cap= 'Density Estimates of Coyote on Forest'}
+
+#Estimate Rho
+rho <- rhohat(data_ppp_clipped, forest)
+
+plot(rho)
+
+
+```
+
+Next, we plotted the density estimates of coyote sightings based on forest coverage, as shown in Figure 12. We observed that there may be a non-linear relationship between forest coverage and coyote intensity, with higher coyote intensity observed at forest coverage levels between 5% and 40%.
+
+
+## HFI
+
+```{r}
+
+HFI <- DATA$HFI
+
+b <- quantile(HFI, probs = (0:4)/4, type = 2)
+
+Zcut <- cut(HFI, breaks = b)
+V <- tess(image = Zcut)
+
+quadratcount(data_ppp_clipped, tess = V)
+```
+```{r, fig.cap= 'Density Estimates of Coyote on HFI'}
+
+#Estimate Rho
+rho <- rhohat(data_ppp_clipped, HFI)
+
+plot(rho)
+
+```
+
+
+
+Then, we plotted the density estimates of coyote sightings based on the Human Footprint Index (HFI), as shown in Figure 13. We observed that there may be a non-linear relationship between HFI and coyote intensity, with higher coyote intensity observed in areas with higher human impact.
+
+## water
+
+```{r}
+
+water <- DATA$Dist_Water
+
+b <- quantile(water, probs = (0:4)/4, type = 2)
+
+Zcut <- cut(water, breaks = b)
+V <- tess(image = Zcut)
+
+quadratcount(data_ppp_clipped, tess = V)
+```
+
+```{r, fig.cap='Density Estimates of Coyote on Distance to Water'}
+
+#Estimate Rho
+rho <- rhohat(data_ppp_clipped, water)
+
+plot(rho)
+
+```
+
+Finally, we plotted the density estimates of coyote sightings based on distance from water sources, as shown in Figure 14. We observed that there may be a non-linear relationship between distance from water sources and coyote intensity, with higher coyote intensity observed in areas close to water sources or at a moderate distance from them.
+
+Furthermore, to gain more insights into the relationship among coyotes, we conducted Second Moment Descriptives analysis. By examining the distribution of the distances between pairs of coyotes, we can determine whether coyotes tend to cluster or disperse spatially. This analysis can also provide information on the spatial scale at which coyotes exhibit strong or weak clustering. This approach not only complements the previous density estimation analysis but also sheds light on the social behavior of coyotes and their habitat preferences.
+
+## Second Moment Descriptives
+
+Firstly, we conducted Ripley's K function analysis to examine the spatial clustering of coyotes.
+
+
+```{r, fig.cap='K function'}
+
+E_bei_99 <- envelope(data_ppp_clipped,
+                     Kinhom,
+                     correction="border",
+                     rank = 1,
+                     nsim = 99,
+                     fix.n = T)
+
+plot(E_bei_99,
+     main = "",
+     lwd = 2)
+
+```
+
+From Figure 15, it is evident that significant clustering of coyote sightings occurs in the distance ranges of 1-100,000 and 180,000-240,000 after adjusting for inhomogeneity. Conversely, significant avoidance occurs in the distance range of 240,000-251,000.
+
+Next, we conducted pair correlation analysis to further investigate the spatial pattern of coyotes.
+
+```{r, fig.cap='Paired Correlation Function'}
+
+lambda_coyoe_pos <- density(data_ppp_clipped,
+                          sigma=bw.ppl,
+                          positive=TRUE)
+
+pcf_coyoe_inhom <- envelope(data_ppp_clipped,
+                          pcfinhom,
+                          simulate = expression(rpoispp(lambda_coyoe_pos)),
+                          rank = 1,
+                          nsim = 19)
+
+plot(pcf_coyoe_inhom)
+
+```
+
+From Figure 16, it can be observed that after correcting for homogeneity, the number of coyote sightings appears to be significantly lower than expected by random chance in a range of approximately 20,000 to 40,000 meters. Outside of this range, the distribution of coyotes does not appear to exhibit any significant correlation.
+
+## Poisson Point Process Model
+
+
+```{r}
+cor_df <- cor.im(DATA$Elevation,DATA$Forest,DATA$HFI, DATA$Dist_Water, use = "complete.obs")
+knitr::kable(cor_df, caption = "Correlation Between Covariates",align='r', floating = FALSE)
+```
+The table 1 shows that there is no obvious collinearity between the four variables.
+
+
+
+```{r}
+data_ppp_clipped <- unmark(data_ppp_clipped)
+mu <- mean(DATA$Elevation)
+stdev <- sd(DATA$Elevation)
+DATA$Elevation_scaled <- eval.im((Elevation - mu)/stdev, DATA)
+mu <- mean(DATA$Dist_Water)
+stdev <- sd(DATA$Dist_Water)
+DATA$Dist_Water_scaled <- eval.im((Dist_Water - mu)/stdev, DATA)
+fit <- ppm(data_ppp_clipped ~ Elevation_scaled + I(Elevation_scaled^2)+Forest+I(Forest^2)+HFI+I(HFI^2)+Dist_Water_scaled+I(Dist_Water_scaled^2), data = DATA)
+#fit <- ppm(data_ppp_clipped ~ Elevation + I(Elevation^2)+Forest+I(Forest^2)+HFI+I(HFI^2)+Dist_Water+I(Dist_Water^2), data = DATA)
+fit
+```
+
+since the process is inhomogeneous, fit the model with the function form $\lambda = e^{-2.37016510\times10-2.983170\times10^{-01}elev+2.169039\times10^{-01}elev^2-9.761252\times10^{-03}forest+8.749969\times10^{-05}forest^2 + 12.07885hfi - 5.786288hfi^2 - 2.683963\times10^{-01}water+1.268933\times10^{-02}water^2}$
+
+since the p-value of $water^2$ is smaller than 0.05, which means it's not important, so we delete it. Then we fit a new model.
+
+```{r}
+fit_reduced <- ppm(data_ppp_clipped ~ Elevation_scaled + I(Elevation_scaled^2)+Forest+I(Forest^2)+HFI+I(HFI^2)+Dist_Water_scaled, data = DATA)
+#fit_reduced <- ppm(data_ppp_clipped ~ Elevation + I(Elevation^2)+Forest+I(Forest^2)+HFI+I(HFI^2)+Dist_Water, data = DATA)
+lrt_result <- anova.ppm(fit_reduced, fit, test = "LRT")
+
+#AIC values
+AIC(fit); AIC(fit_reduced)
+#Delta AIC
+AIC(fit_reduced) - AIC(fit)
+
+# Print the LRT result
+print(lrt_result)
+
+
+
+```
+
+The reduced model has better AIC. Other than that,p-value of all the parameters are greater than 0.05, so we retain the null hypothesis that the reduced model can sufficiently explain the data.
+
+
+```{r, fig.cap='Predicted Intensity'}
+#Plot the model predictions
+plot(fit_reduced,
+     se = FALSE,
+     log= TRUE,
+     n = 400,
+     superimpose = FALSE)
+
+#Overlay the park locations
+plot(data_ppp_clipped,
+     pch = 16,
+     cex = 0.5,
+     cols = "black",
+     add = TRUE)
+
+```
+
+We then plot the model prediction plot and the distribution points of the coyotes, as shown in Figure 17. The plot shows that the model prediction for the coyote distribution is quite accurate, but there is over-prediction in some areas.
+
+
+```{r}
+quadrat.test(fit_reduced, nx = 2, ny = 4)
+```
+We conducted a quadrat.test with nx = 2, ny = 4 to split the area into 8 small rectangles. The result showed that the p-value was less than 0.05, indicating that the fitted model was not good enough. This is consistent with the result of over-prediction in some areas that we found in the previous analysis.
+
+Then we validated the model with residual plots.
+
+```{r, fig.width=8, fig.height=8, fig.cap='Residual Plot'}
+#Calculate the residuals
+#res <- residuals(fit_reduced)
+
+res <- diagnose.ppm(fit_reduced, plot.it = FALSE)
+#Visualise
+plot(res, which = 'smooth')
+
+
+```
+
+
+The residual plot shown in Figure 18 indicates that the residuals are mostly centered around 0, suggesting a good fit of the model. However, the largest residuals are found in the southern part of BC, indicating over-prediction in this area.
+
+Then we accessed model fit with partial residual plots of each of the covariates.
+
+Firstly, elevation.
+
+
+```{r, fig.cap='Relative Intensity as a Function of Elevation'}
+
+#Calculate the relative intensity as a function of elevation
+par_res_elev <- parres(fit_reduced, "Elevation_scaled")
+
+
+plot(par_res_elev,
+     legend = FALSE,
+     lwd = 2,
+     main = "",
+     xlab = "Elevation (m)")
+
+
+
+```
+
+
+
+As shown in Figure 19, the quadratic term of elevation did not capture the pattern well in the data, so we added higher-order polynomial terms to elevation in later analysis to improve the fitting accuracy of the model.
+
+
+
+```{r, fig.cap='Relative Intensity as a Function of Forest'}
+
+par_res_forest <- parres(fit_reduced, "Forest")
+
+
+plot(par_res_forest,
+     legend = FALSE,
+     lwd = 2,
+     main = "",
+     xlab = "Forest Cover (%)")
+
+
+
+```
+
+
+
+As shown in Figure 20, the quadratic term of forest cover did not capture the pattern well in the data, so we added higher-order polynomial terms to forest cover in later analysis.
+
+
+```{r, fig.cap='Relative Intensity as a Function of HFI'}
+
+par_res_HFI <- parres(fit_reduced, "HFI")
+
+
+plot(par_res_HFI,
+     legend = FALSE,
+     lwd = 2,
+     main = "",
+     xlab = "HFI")
+
+
+
+```
+
+As shown in Figure 21, the quadratic term of HFI captures the pattern in the data well, so we did not make any changes to HFI.
+
+
+```{r, fig.cap='Relative Intensity as a Function of Distance to Water'}
+
+par_res_water <- parres(fit_reduced, "Dist_Water_scaled")
+
+
+plot(par_res_water,
+     legend = FALSE,
+     lwd = 2,
+     main = "",
+     xlab = "Elevation (m)")
+
+
+
+```
+
+As shown in Figure 22, the linear term of the variable "water" captures the pattern in the data well, so we do not make any modifications to this variable.
+
+Next, based on the analysis of the partial residual plots as shown above, we improved our model.
+
+
+```{r}
+library(spatstat)
+library(splines)
+
+#Fit the PPP model
+fit_smooth <- ppm(data_ppp_clipped ~ bs(Elevation_scaled,7) + bs(Forest, 6) + HFI + I(HFI^2) + Dist_Water_scaled, data = DATA, use.gam = TRUE)
+
+fit_smooth
+
+
+```
+The new model includes the 7th power of elevation and the 6th power of forest cover, while the other parameters remain the same.
+
+Then we analyzed the partial residual plots of the new model for elevation and forest cover, as shown in the following figures.
+
+
+```{r, fig.cap='Relative Intensity as a Function of Elevation'}
+
+#Calculate the relative intensity as a function of elevation
+par_res_elev <- parres(fit_smooth, "Elevation_scaled")
+
+
+plot(par_res_elev,
+     legend = FALSE,
+     lwd = 2,
+     main = "",
+     xlab = "Elevation (m)")
+
+
+
+```
+
+
+
+
+
+
+```{r, fig.cap='Relative Intensity as a Function of Forest'}
+
+par_res_forest <- parres(fit_smooth, "Forest")
+
+
+plot(par_res_forest,
+     legend = FALSE,
+     lwd = 2,
+     main = "",
+     xlab = "Elevation (m)")
+
+
+
+```
+
+
+
+From figure 23 and figure 24, the models look like a much better fit to the data, but we have added a lot of complexity. To ensure we are not overfitting, we again use our model selection techniques.
+
+```{r}
+
+
+
+lrt_result <- anova.ppm(fit_smooth, fit, test = "LRT")
+
+#AIC values
+AIC(fit_reduced); 
+AIC(fit_smooth)
+#Delta AIC
+AIC(fit_smooth) - AIC(fit_reduced)
+
+# Print the LRT result
+
+quadrat.test(fit_smooth, nx = 10, ny = 10)
+
+print(lrt_result)
+```
+
+The AIC value of the fit_reduced model is 36668.83, while the AIC value of the fit_smooth model is 36486.55. A lower AIC value indicates a better fit of the model while considering the complexity of the model. In this example, the fit_smooth model has a lower AIC value, indicating that it may have a better fit. Additionally, the LRT test results show a p-value less than 2.2e-16, rejecting the null hypothesis that the two models have the same fit, indicating that the fit_smooth model has a significantly better fit than the fit_reduced model. The chi-squared test result also shows a p-value less than 2.2e-16, indicating that the explanatory variables in the fit_smooth model are significant in explaining the observed data. Overall, the output indicates that the fit_smooth model has a better fit than the fit_reduced model.
+
+The final model is too long to write down, but we can visualise the residual plot just as before.
+
+
+```{r, warning=FALSE, fig.cap='Residual Plot'}
+
+res_diagnosis <- diagnose.ppm(fit_smooth, plot.it = FALSE)
+
+plot(res_diagnosis, which = 'smooth')
+
+res_diagnosis
+
+```
+
+As shown in Figure 25, the residuals of the modified model in the southern part of BC are closer to 0, indicating a better fit to the reality and thus a better performance of the model.
+\newline
+\newline
+\newline
+\newline
+\
+
+# Discussion
+
+The spatial distribution of coyotes is inhomogeneous, and it has been observed that in the southern part of British Columbia, coyotes tend to cluster together. Several factors seem to influence the clustering of coyotes, including elevation, forest cover, the Human Footprint Index (HFI), and the distance from water sources. More specifically, coyotes tend to congregate in areas with low elevation (below 550 meters), low forest cover (less than approximately 43%), significant human impact, and close to moderate distances from water sources.
+
+Our final model incorporates the 7th power of elevation and the 6th power of forest cover, as well as the quadratic terms for distance to water sources and the HFI. This model has been assessed for its goodness of fit using the AIC and residual plots, which indicate that the model is performing well.
+
+In summary, the clustering of coyotes in southern British Columbia appears to be influenced by a combination of environmental and human factors. Areas with lower elevation, less forest cover, greater human impact, and not far away from water sources are more likely to have higher concentrations of coyotes. These environmental characteristics are in accord with the environmental features of metropolitan areas. In fact, hot spot analysis shows that coyotes are significantly concentrated in areas around Vancouver and Kelowna, the two biggest metropolitan areas of BC. The understanding of these factors and their influence on coyote distribution can inform wildlife management and conservation efforts. Future city development and expansions could take the insights gained into account to minimize potential conflict between human settlements and coyotes.  
